@@ -11,7 +11,7 @@ from nnunet_mednext.network_architecture.mednextv1.create_mednext_v1 import (
 # ---------------------------------------------------------
 
 DATA_ROOT = (
-    r"D:\(Path)\Research"
+    r"D:\Brian Lala\Research"
     r"\2-step-segmentation-kidney-tumor-and-cyst"
     r"\data\KiTS23"
 )
