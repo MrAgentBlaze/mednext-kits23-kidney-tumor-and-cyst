@@ -79,7 +79,7 @@ for target in sample_targets:
     sampling_test(target)
 
 # ============================================================
-# Test 1,000 random target patches
+# Fast 1,000-patch sampling test
 # ============================================================
 
 for target in ["tumor", "cyst"]:
@@ -95,10 +95,20 @@ for target in ["tumor", "cyst"]:
     tumor_count = 0
     cyst_count = 0
 
+    # Cache one sampled patch per case.
+    cached_samples = []
+
+    for index in range(len(dataset)):
+        sample = dataset[index]
+        cached_samples.append(sample)
+
+    print(f"Loaded {len(cached_samples)} cases.")
+
+    # Sample 1,000 patches from the cached cases.
     for i in range(1000):
 
-        sample = dataset[
-            np.random.randint(len(dataset))
+        sample = cached_samples[
+            np.random.randint(len(cached_samples))
         ]
 
         labels = sample["label"].unique().tolist()
