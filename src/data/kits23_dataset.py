@@ -36,6 +36,8 @@ class KiTS23Dataset(Dataset):
             "foreground",
             "tumor",
             "cyst",
+            "random",
+            "mixed",
         }
 
         if self.sampling_mode not in valid_modes:
@@ -90,7 +92,7 @@ class KiTS23Dataset(Dataset):
 
             # For cyst sampling, make sure this case
             # actually contains cyst voxels.
-            if self.sampling_mode == "cyst":
+            if self.sampling_mode in {"cyst", "mixed"}:
                 if not np.any(label == 3):
 
                     # Select another random case.
@@ -165,14 +167,62 @@ class KiTS23Dataset(Dataset):
         # Select target voxels
         # -----------------------------------------------------
 
-        if self.sampling_mode == "foreground":
-            target_voxels = np.argwhere(label > 0)
+        if self.sampling_mode == "random":
+
+            target_voxels = np.empty(
+                (0, 3),
+                dtype=np.int64,
+            )
+
+        elif self.sampling_mode == "foreground":
+
+            target_voxels = np.argwhere(
+                label > 0
+            )
 
         elif self.sampling_mode == "tumor":
-            target_voxels = np.argwhere(label == 2)
+
+            target_voxels = np.argwhere(
+                label == 2
+            )
 
         elif self.sampling_mode == "cyst":
-            target_voxels = np.argwhere(label == 3)
+
+            target_voxels = np.argwhere(
+                label == 3
+            )
+
+        elif self.sampling_mode == "mixed":
+
+            sampling_choice = np.random.choice(
+                [
+                    "random",
+                    "foreground",
+                    "tumor",
+                    "cyst",
+                ]
+            )
+
+            if sampling_choice == "random":
+                target_voxels = np.empty(
+                    (0, 3),
+                    dtype=np.int64,
+                )
+
+            elif sampling_choice == "foreground":
+                target_voxels = np.argwhere(
+                    label > 0
+                )
+
+            elif sampling_choice == "tumor":
+                target_voxels = np.argwhere(
+                    label == 2
+                )
+
+            elif sampling_choice == "cyst":
+                target_voxels = np.argwhere(
+                    label == 3
+                )
 
         # -----------------------------------------------------
         # Safety fallback
