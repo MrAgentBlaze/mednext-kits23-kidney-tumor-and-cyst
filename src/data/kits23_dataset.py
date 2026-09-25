@@ -34,10 +34,11 @@ class KiTS23Dataset(Dataset):
 
         valid_modes = {
             "foreground",
+            "random",
             "tumor",
             "cyst",
-            "random",
             "mixed",
+            "balanced",
         }
 
         if self.sampling_mode not in valid_modes:
@@ -64,12 +65,51 @@ class KiTS23Dataset(Dataset):
                 f"No KiTS23 cases found in {self.data_root}"
             )
 
+        self.cyst_cases = None
+
     def __len__(self):
         return len(self.cases)
 
     def __getitem__(self, index):
 
-        case_dir = self.cases[index]
+        # Determine what type of patch to sample.
+        sampling_mode = self._choose_sampling_mode()
+
+        # For cyst sampling, select only from cases
+        # that actually contain cyst voxels.
+        if sampling_mode == "cyst":
+
+            if self.cyst_cases is None:
+
+                self.cyst_cases = []
+
+                for case_dir in self.cases:
+
+                    label_path = (
+                        case_dir / "segmentation.nii.gz"
+                    )
+
+                    label_data = nib.load(
+                        str(label_path)
+                    ).get_fdata()
+
+                    if np.any(label_data == 3):
+                        self.cyst_cases.append(
+                            case_dir
+                        )
+
+                if len(self.cyst_cases) == 0:
+                    raise RuntimeError(
+                        "No cyst-containing cases found."
+                    )
+
+            case_dir = self.cyst_cases[
+                np.random.randint(len(self.cyst_cases))
+            ]
+
+        else:
+
+            case_dir = self.cases[index]
 
         while True:
 
@@ -90,24 +130,23 @@ class KiTS23Dataset(Dataset):
                 dtype=np.int64
             )
 
-            # For cyst sampling, make sure this case
-            # actually contains cyst voxels.
-            if self.sampling_mode in {"cyst", "mixed"}:
+            # If cyst sampling was selected, make sure
+            # the selected case actually contains cyst voxels.
+            if sampling_mode == "cyst":
+
                 if not np.any(label == 3):
 
-                    # Select another random case.
-                    random_index = np.random.randint(
-                        len(self.cases)
-                    )
-
-                    case_dir = self.cases[random_index]
+                    case_dir = self.cyst_cases[
+                        np.random.randint(
+                            len(self.cyst_cases)
+                        )
+                    ]
 
                     continue
 
             break
 
         # Basic CT normalization.
-        # We deliberately keep this simple for the first pipeline test.
         image = np.clip(image, -1000, 1000)
         image = (image + 1000) / 2000
 
@@ -115,6 +154,7 @@ class KiTS23Dataset(Dataset):
         image_patch, label_patch = self._extract_patch(
             image,
             label,
+            sampling_mode=sampling_mode,
         )
 
         # Add channel dimension:
@@ -133,148 +173,160 @@ class KiTS23Dataset(Dataset):
             "case": case_dir.name,
         }
 
-    def _extract_patch(self, image, label):
-        pd, ph, pw = self.patch_size
+    def _extract_patch(self, image, label, sampling_mode="foreground"):
 
-        d, h, w = image.shape
+        patch_depth, patch_height, patch_width = self.patch_size
 
-        if h < ph or w < pw:
+        depth, height, width = image.shape
+
+        if height < patch_height or width < patch_width:
             raise ValueError(
-                f"Patch {self.patch_size} is larger than volume "
+                f"Image too small for patch size {self.patch_size}: "
                 f"{image.shape}"
             )
 
-        if d < pd:
-            pad_d = pd - d
+        # Pad shallow volumes in depth.
+        if depth < patch_depth:
+            pad_before = (patch_depth - depth) // 2
+            pad_after = patch_depth - depth - pad_before
 
             image = np.pad(
                 image,
-                ((0, pad_d), (0, 0), (0, 0)),
+                (
+                    (pad_before, pad_after),
+                    (0, 0),
+                    (0, 0),
+                ),
                 mode="constant",
                 constant_values=0,
             )
 
             label = np.pad(
                 label,
-                ((0, pad_d), (0, 0), (0, 0)),
+                (
+                    (pad_before, pad_after),
+                    (0, 0),
+                    (0, 0),
+                ),
                 mode="constant",
                 constant_values=0,
             )
 
-            d, h, w = image.shape
+            depth = image.shape[0]
 
-        # -----------------------------------------------------
-        # Select target voxels
-        # -----------------------------------------------------
+        # ---------------------------------------------------------
+        # TRUE RANDOM PATCH
+        # ---------------------------------------------------------
+        if sampling_mode == "random":
 
-        if self.sampling_mode == "random":
-
-            target_voxels = np.empty(
-                (0, 3),
-                dtype=np.int64,
+            start_d = np.random.randint(
+                0,
+                depth - patch_depth + 1,
             )
 
-        elif self.sampling_mode == "foreground":
-
-            target_voxels = np.argwhere(
-                label > 0
+            start_h = np.random.randint(
+                0,
+                height - patch_height + 1,
             )
 
-        elif self.sampling_mode == "tumor":
-
-            target_voxels = np.argwhere(
-                label == 2
+            start_w = np.random.randint(
+                0,
+                width - patch_width + 1,
             )
-
-        elif self.sampling_mode == "cyst":
-
-            target_voxels = np.argwhere(
-                label == 3
-            )
-
-        elif self.sampling_mode == "mixed":
-
-            sampling_choice = np.random.choice(
-                [
-                    "random",
-                    "foreground",
-                    "tumor",
-                    "cyst",
-                ]
-            )
-
-            if sampling_choice == "random":
-                target_voxels = np.empty(
-                    (0, 3),
-                    dtype=np.int64,
-                )
-
-            elif sampling_choice == "foreground":
-                target_voxels = np.argwhere(
-                    label > 0
-                )
-
-            elif sampling_choice == "tumor":
-                target_voxels = np.argwhere(
-                    label == 2
-                )
-
-            elif sampling_choice == "cyst":
-                target_voxels = np.argwhere(
-                    label == 3
-                )
-
-        # -----------------------------------------------------
-        # Safety fallback
-        # -----------------------------------------------------
-
-        if len(target_voxels) == 0:
-
-            # If this case does not contain the requested
-            # structure, fall back to any foreground voxel.
-            target_voxels = np.argwhere(label > 0)
-
-        if len(target_voxels) == 0:
-
-            # Extremely unlikely for KiTS23, but handle
-            # completely empty masks safely.
-            d_start = np.random.randint(0, d - pd + 1)
-            h_start = np.random.randint(0, h - ph + 1)
-            w_start = np.random.randint(0, w - pw + 1)
 
         else:
 
-            # Random target voxel
-            center = target_voxels[
-                np.random.randint(len(target_voxels))
-            ]
+            # Determine which class should guide patch selection.
+            if sampling_mode == "tumor":
+                target_voxels = np.argwhere(label == 2)
 
-            center_d, center_h, center_w = center
+            elif sampling_mode == "cyst":
+                target_voxels = np.argwhere(label == 3)
 
-            # Center patch around target voxel
-            d_start = center_d - pd // 2
-            h_start = center_h - ph // 2
-            w_start = center_w - pw // 2
+            elif sampling_mode == "foreground":
+                target_voxels = np.argwhere(label > 0)
 
-            # Keep patch inside volume
-            d_start = max(0, min(d_start, d - pd))
-            h_start = max(0, min(h_start, h - ph))
-            w_start = max(0, min(w_start, w - pw))
+            else:
+                raise ValueError(
+                    f"Unknown sampling mode: {sampling_mode}"
+                )
 
-        # -----------------------------------------------------
-        # Extract patch
-        # -----------------------------------------------------
+            # If the requested target does not exist,
+            # fall back to any foreground voxel.
+            if len(target_voxels) == 0:
+                target_voxels = np.argwhere(label > 0)
+
+            # If there is still no foreground,
+            # use a completely random patch.
+            if len(target_voxels) == 0:
+
+                start_d = np.random.randint(
+                    0,
+                    depth - patch_depth + 1,
+                )
+
+                start_h = np.random.randint(
+                    0,
+                    height - patch_height + 1,
+                )
+
+                start_w = np.random.randint(
+                    0,
+                    width - patch_width + 1,
+                )
+
+            else:
+
+                # Select a random target voxel.
+                center_d, center_h, center_w = target_voxels[
+                    np.random.randint(len(target_voxels))
+                ]
+
+                # Center the patch around that voxel.
+                start_d = center_d - patch_depth // 2
+                start_h = center_h - patch_height // 2
+                start_w = center_w - patch_width // 2
+
+                # Clamp to valid patch boundaries.
+                start_d = max(
+                    0,
+                    min(start_d, depth - patch_depth),
+                )
+
+                start_h = max(
+                    0,
+                    min(start_h, height - patch_height),
+                )
+
+                start_w = max(
+                    0,
+                    min(start_w, width - patch_width),
+                )
+
+        end_d = start_d + patch_depth
+        end_h = start_h + patch_height
+        end_w = start_w + patch_width
 
         image_patch = image[
-            d_start:d_start + pd,
-            h_start:h_start + ph,
-            w_start:w_start + pw,
+            start_d:end_d,
+            start_h:end_h,
+            start_w:end_w,
         ]
 
         label_patch = label[
-            d_start:d_start + pd,
-            h_start:h_start + ph,
-            w_start:w_start + pw,
+            start_d:end_d,
+            start_h:end_h,
+            start_w:end_w,
         ]
 
         return image_patch, label_patch
+
+    def _choose_sampling_mode(self):
+
+        if self.sampling_mode != "balanced":
+            return self.sampling_mode
+
+        return np.random.choice(
+            ["random", "foreground", "tumor", "cyst"],
+            p=[0.10, 0.20, 0.35, 0.35],
+        )

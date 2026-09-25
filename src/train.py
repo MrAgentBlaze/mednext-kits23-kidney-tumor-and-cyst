@@ -31,7 +31,7 @@ PATCH_SIZE = (32, 128, 128)
 
 BATCH_SIZE = 2
 
-NUM_EPOCHS = 5
+NUM_EPOCHS = 50
 
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
@@ -101,7 +101,7 @@ train_dataset = KiTS23Dataset(
     data_root=DATA_ROOT,
     patch_size=PATCH_SIZE,
     cases=train_cases,
-    sampling_mode="mixed",
+    sampling_mode="balanced",
 )
 
 val_dataset = KiTS23Dataset(
