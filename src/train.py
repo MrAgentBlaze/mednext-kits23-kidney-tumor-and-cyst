@@ -31,12 +31,12 @@ PATCH_SIZE = (32, 128, 128)
 
 BATCH_SIZE = 2
 
-NUM_EPOCHS = 1
+NUM_EPOCHS = 20
 
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-5
 
-NUM_WORKERS = 2
+NUM_WORKERS = 0
 
 OUTPUT_DIR = Path("outputs") / "mednext_s"
 
@@ -121,7 +121,6 @@ train_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=True,
     num_workers=NUM_WORKERS,
-    persistent_workers=True,
 )
 
 val_loader = DataLoader(
@@ -129,7 +128,6 @@ val_loader = DataLoader(
     batch_size=BATCH_SIZE,
     shuffle=False,
     num_workers=NUM_WORKERS,
-    persistent_workers=True,
 )
 
 
